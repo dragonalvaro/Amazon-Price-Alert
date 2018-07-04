@@ -1,5 +1,3 @@
-#!/usr/bin/python
-# -*- coding: utf-8 -*-
 import os
 import re
 import json
@@ -7,16 +5,21 @@ import time
 import requests
 import smtplib
 import argparse
-import urlparse
+from urllib.parse import urlparse
+from urllib.parse import urljoin
 import datetime,random
 import UserAgent
 import telegram
+import logging
 
 from copy import copy
 from lxml import html
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from datetime import date, datetime, timedelta
+
+from telegram.ext import Job
+from threading import Event
 
 ua = UserAgent.UserAgent()
 intervalTimeBetweenCheck = 0
@@ -27,19 +30,9 @@ IFTTT_Key = ""
 IFTTT_EventName = ""
 
 
-
-# msg_content format
-# msg_content['Subject'] = 'Subject'
-# msg_content['Content'] = 'This is a content'
-
 def send_Notification(msg_content):
     global send_Mode
-    if send_Mode == 1:
-        send_email(msg_content)
-    elif send_Mode == 2:
-        IFTTT_alert(msg_content)
-    elif send_Mode == 3:
-        telegram_alert(msg_content)
+    telegram_alert(msg_content)
 
 def telegram_alert(msg_content):
     global botToken
@@ -58,62 +51,8 @@ def telegram_alert(msg_content):
         message = msg_content['Content']
 
     bot.send_message(chat_id=chatId, text=message)
-    print "Mesage posted to telegram:",chatId
+    print ("Mesage posted to telegram:",chatId)
 
-def IFTTT_alert(msg_content):
-    global IFTTT_EventName
-    global IFTTT_Key
-
-    requestBody = {}
-
-    # 1 is success
-    # 2 is server working msg
-    # 3 is server shutdown
-    if msg_content['code'] == 1:
-        requestBody["value1"] = msg_content['Product']
-        requestBody["value2"] = msg_content['Price']
-        requestBody["value3"] = msg_content['URL']
-
-    elif msg_content['code'] == 2:
-        requestBody["value1"] = msg_content['Content']
-
-    elif msg_content['code'] == 3:
-        requestBody["value1"] = msg_content['Content']
-
-    url = "https://maker.ifttt.com/trigger/%s/with/key/%s" % (IFTTT_EventName,IFTTT_Key)
-    requests.post(url, data=requestBody) 
-    print "IFTTT post success  ",url
-
-def send_email(msg_content):
-    global emailinfo
-
-    try:
-        # Try to login smtp server
-        s = smtplib.SMTP("smtp.gmail.com:587")
-        s.ehlo()
-        s.starttls()
-        s.login(emailinfo['sender'], emailinfo['sender-password'])
-    except smtplib.SMTPAuthenticationError:
-        # Log in failed
-        print smtplib.SMTPAuthenticationError
-        print('[Mail]\tFailed to login')
-    else:
-        # Log in successfully
-        print('[Mail]\tLogged in! Composing message..')
-
-        for receiver in emailinfo['receivers']:
-
-            msg = MIMEMultipart('alternative')
-            msg['Subject'] = msg_content['Subject']
-            msg['From'] = emailinfo['sender']
-            msg['To'] = receiver
-            
-            text = msg_content['Content']
-
-            part = MIMEText(text, 'plain')
-            msg.attach(part)
-            s.sendmail(emailinfo['sender'], receiver, msg.as_string())
-            print('[Mail]\tMessage has been sent to %s.' % (receiver))
 
 # send notified mail once a day.
 def checkDayAndSendMail():
@@ -134,9 +73,6 @@ def checkDayAndSendMail():
         msg_content['ServerState'] = "Working"
         msg_content['code'] = 2 # 2 is server state
         send_Notification(msg_content)
-
-
-
 
 def get_price(url, selector):
     
@@ -165,25 +101,25 @@ def get_price(url, selector):
         productName = productName.strip()
 
     # find Price
-    try:
-        # extract the price from the string
-        price_string = re.findall('\d+.\d+', tree.xpath(selector['price'])[0].text)[0]
-        return float(price_string.replace(',', '')),productName
+    # try:
+    #     # extract the price from the string
+    #     price_string = re.findall('\d+.\d+', tree.xpath(selector['price'])[0].text)[0]
+    #     return float(price_string.replace(',', '')),productName
     
-    except IndexError, TypeError:
-        print('Didn\'t find the \'price\' element, trying again later...')
+    # except IndexError, TypeError:
+    #     #print('Didn\'t find the \'price\' element, trying again later...')
         
-        # be banned, send mail then shut down
-        # send mail notifying server shutdown
-        msg_content = {}
-        msg_content['Subject'] = '[Amazon Price Alert] Server be banned !'
-        msg_content['Content'] = 'Amazon Price Alert be banned at %s !' % (datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-        msg_content['Price'] = ""
-        msg_content['Time'] = ""
-        msg_content['ServerState'] = "Banned"
-        msg_content['code'] = 3 # 3 is server shutdown
-        send_Notification(msg_content)
-        return 0,productName
+    #     # be banned, send mail then shut down
+    #     # send mail notifying server shutdown
+    #     msg_content = {}
+    #     msg_content['Subject'] = '[Amazon Price Alert] Server be banned !'
+    #     msg_content['Content'] = 'Amazon Price Alert be banned at %s !' % (datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
+    #     msg_content['Price'] = ""
+    #     msg_content['Time'] = ""
+    #     msg_content['ServerState'] = "Banned"
+    #     msg_content['code'] = 3 # 3 is server shutdown
+    #     send_Notification(msg_content)
+    #     return 0,productName
 
 
 
@@ -198,18 +134,15 @@ def get_config(config):
 # add some arguments 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('-c', '--config',
-                        default='%s/config.json' % os.path.dirname(os.path.realpath(__file__)),
-                        help='Add your config.json path')
-    parser.add_argument('-t', '--poll-interval', type=int, default=780,
-                        help='Time(second) between checking, default is 780 s.')
+    #parser.add_argument('-c', default='%s/config.json'job % os.path.dirname(os.path.realpath(__file__)), help='Add your config.json path')
+    #parser.add_argument('-t', type=int, default=780,help='Time(second) between checking, default is 780 s.')
 
     return parser.parse_args()
 
-def main():
+def run(self,bot):
     #set up arguments
-    args = parse_args()
-    intervalTimeBetweenCheck = args.poll_interval
+    #args = parse_args()
+    #intervalTimeBetweenCheck = args.poll_interval
     global dateIndex
     global emailinfo
     global IFTTT_Key,IFTTT_EventName,send_Mode
@@ -247,7 +180,7 @@ def main():
         itemIndex = 1
         for item in copy(items):
             # url to parse
-            item_page_url = urlparse.urljoin(config['amazon-base_url'], item[0])
+            item_page_url = urljoin(config['amazon-base_url'], item[0])
             print('[#%02d] Checking price for %s (target price: %s)' % ( itemIndex, item[0], item[1]))
 
             # get price and product name
@@ -288,5 +221,5 @@ def main():
             break
 
 
-if __name__ == '__main__':
-    main()
+#if __name__ == '__main__':
+#    main()
