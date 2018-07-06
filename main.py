@@ -1,6 +1,6 @@
 import logging
 
-from telegram.ext import CommandHandler
+from telegram.ext import CommandHandler, CallbackQueryHandler
 from telegram.ext import Updater
 from telegram.ext.messagehandler import MessageHandler
 from telegram.ext import Filters 
@@ -31,6 +31,9 @@ if __name__ == '__main__':
     dispatcher.add_handler(MessageHandler(Filters.text, echo))
     dispatcher.add_handler(CommandHandler('caps', caps, pass_args=True))
     dispatcher.add_handler(CommandHandler('add', addTracking, pass_args=True))
+    dispatcher.add_handler(CommandHandler('list', listTracking))
+    dispatcher.add_handler(CommandHandler('remove', removeTracking))
+    dispatcher.add_handler(CallbackQueryHandler(callbackHandler, pass_chat_data=True))
     dispatcher.add_handler(MessageHandler(Filters.command, unknown))
 
 

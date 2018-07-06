@@ -1,24 +1,23 @@
 import datetime
 
-from peewee import (Model, DateTimeField, ForeignKeyField, BigIntegerField, CharField, IntegerField, TextField, OperationalError, BooleanField)
+from peewee import Model, ForeignKeyField, CharField, SqliteDatabase
 
+db = SqliteDatabase('amazon.db')
 
 class User(Model):
     telegramId = CharField(unique=True)
-    #known_at = DateTimeField(default=datetime.datetime.now)
-    #name = CharField()
-    #last_fetched = DateTimeField(default=datetime.datetime.now)
+    class Meta:
+        database = db # this model uses the "amazon.db" database
 
-    #@property
-    #def full_name(self):
-    #    return "{} ({})".format(self.name, self.screen_name)
 
 class Tracking(Model):
-    ForeignKeyField(User, related_name="telegramId")
+    user = ForeignKeyField(User, backref='user_id')
     asin = CharField()
-
+    status = CharField()
+    class Meta:
+        database = db # this model uses the "amazon.db" database
 
 
 # Create tables
-for t in (User, Tracking):
-    t.create_table(fail_silently=True)
+db.connect()
+db.create_tables([User, Tracking])

@@ -2,9 +2,11 @@ import json
 from datetime import datetime
 
 import telegram
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext.dispatcher import run_async
 
 from models import Tracking, User
-from util import with_touched_chat, escape_markdown
+from util import with_touched_chat, escape_markdown, build_menu
 
 
 def cmd_ping(bot, update):
@@ -30,22 +32,17 @@ def addTracking(bot, update, args, chat=None):
     already_subscribed = []
     successfully_subscribed = []
 
-    for item in amazonItems:
-        #tg_user = bot.get_tracking(tw_username)
-        tg_user = update.message.chat_id
 
-        #if tw_user is None:
-        #    not_found.append(tw_username)
-        #    continue
-        
-        if  User.select().where(User.telegramId == tg_user).count() == 1:
-            #already_subscribed.append(tw_user.full_name)
-            continue
-
+    tg_user = update.message.chat_id
+    if  User.select().where(User.telegramId == tg_user).count() == 0:
         User.create(telegramId=tg_user)
-        #successfully_subscribed.append(tw_user.full_name)
+        
+    userdb = User.select().where(User.telegramId == tg_user).get()
 
-    reply = ""
+    for item in amazonItems:
+        Tracking.create(user=userdb.id,asin=item, status='active')
+        
+    reply = "OK"
 
     if len(not_found) is not 0:
         reply += "Sorry, I didn't find username{} {}\n\n".format(
@@ -64,6 +61,42 @@ def addTracking(bot, update, args, chat=None):
                  )
 
     bot.send_message(chat_id=update.message.chat_id, text=reply)
+
+def listTracking(bot, update):
+    tg_user = update.message.chat_id
+
+    userdb = User.select().where(User.telegramId == tg_user).get()
+
+    activeTrackings = Tracking.select().where(Tracking.user == userdb.id)
+
+    message = 'Tus trackins registrados son estos: \n'
+    for item in activeTrackings:
+        message = message + str(item.asin) + '\n'
+
+    bot.send_message(chat_id=update.message.chat_id, text=message)
+
+def removeTracking(bot, update):
+    tg_user = update.message.chat_id
+    userdb = User.select().where(User.telegramId == tg_user).get()
+    activeTrackings = Tracking.select().where(Tracking.user == userdb.id)
+
+    button_list = []
+    for item in activeTrackings:
+        button_list.append(InlineKeyboardButton(item.asin, callback_data=item.id))
+    
+    reply_markup = InlineKeyboardMarkup(build_menu(button_list, n_cols=1))
+    bot.send_message(tg_user, "Estos son tus trackings activos, selecciona el que desees borrar:", reply_markup=reply_markup)
+
+@run_async
+def callbackHandler(bot, update, chat_data):
+    callbackquery = update.callback_query
+    querydata = callbackquery.data
+    Tracking.delete_by_id(querydata)
+    #bot.answer_callback_query(callbackquery,text="ok 2")
+    #update.message.reply_text('Vale')
+    update.callback_query.answer('Now your language is')
+    #callbackquery.answer('Tracking borrado.')
+    
 
 @with_touched_chat
 def cmd_start(bot, update, chat=None):
